@@ -1,9 +1,16 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Response
-from typing import Any
+from fastapi import Depends, FastAPI, HTTPException, Response
+from typing import Annotated, Any
 from random import randint
-from sqlmodel import create_engine, SQLModel
+from sqlmodel import Field, Session, create_engine, SQLModel
 
+class Campaign(SQLModel, table = True):
+    campaign_id : int | None = Field(default = None, primary_key= True)
+    name : str = Field(index = True)
+    due_date : datetime | None = Field(default = None, index = True)
+    created_at : datetime = Field(default = lambda: datetime.now(timezone.utc), nullable= True, index = True)
+    
 sqlite_file_name ="database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
@@ -13,7 +20,18 @@ engine = create_engine(sqlite_url, connect_args = connect_args)
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
-app = FastAPI(root_path="/api/v1")
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+SessionDep = Annotated[Session, Depends(get_session)]
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+    
+app = FastAPI(root_path="/api/v1", lifespan=lifespan)
 
 data : Any= [
     {
