@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, HTTPException, Response
-from typing import Annotated, Any
+from typing import Annotated, Any, Generic, TypeVar
 from random import randint
+from pydantic import BaseModel
 from sqlmodel import Field, Session, create_engine, SQLModel, select
 
-class Campaign(SQLModel, table = True):
+class Campaigns(SQLModel, table = True):
     campaign_id : int | None = Field(default = None, primary_key= True)
     name : str = Field(index = True)
     due_date : datetime | None = Field(default = None, index = True)
@@ -30,30 +31,47 @@ SessionDep = Annotated[Session, Depends(get_session)]
 async def lifespan(app: FastAPI):
     create_db_and_tables()
     with Session(engine) as session:
-        if not session.exec(select(Campaign)).first():
+        if not session.exec(select(Campaigns)).first():
             session.add_all([
-                Campaign(name="Summer Campaign", due_date=datetime.now()),
-                Campaign(name="Black Friday Sale", due_date=datetime.now())
+                Campaigns(name="Summer Campaign", due_date=datetime.now()),
+                Campaigns(name="Black Friday Sale", due_date=datetime.now())
             ])
             session.commit()
     yield
     
 app = FastAPI(root_path="/api/v1", lifespan=lifespan)
 
-data : Any= [
-    {
-        "campaign_name" : "Summer Launch",
-        "campaign_id" : 1,
-        "due_date" : datetime.now(),
-        "created_at" : datetime.now()    
-    },
-    { 
-        "campaign_name" : "Black Friday",
-        "campaign_id" : 2,
-        "due_date" : datetime.now(),
-        "created_at" : datetime.now()
-    }
-]
+# data : Any= [
+#     {
+#         "campaign_name" : "Summer Launch",
+#         "campaign_id" : 1,
+#         "due_date" : datetime.now(),
+#         "created_at" : datetime.now()    
+#     },
+#     { 
+#         "campaign_name" : "Black Friday",
+#         "campaign_id" : 2,
+#         "due_date" : datetime.now(),
+#         "created_at" : datetime.now()
+#     }
+# ]
+
+T = TypeVar("T")
+class APIResponse(BaseModel, Generic[T]):
+    data : T
+
+@app.get("/campaigns", response_model=APIResponse[list[Campaigns]])
+async def read_campaigns(session: SessionDep):
+    data = session.exec(select(Campaigns)).all()
+    return {"data" : data}
+
+@app.get("/campaigns/{id}", response_model=APIResponse[Campaigns])
+async def read_campaign(id : int, session: SessionDep):
+    data = session.get(Campaigns, id)
+    if not data:
+        raise HTTPException(status_code=404)
+    return {"data" : data}
+
 
 # @app.get("/")
 # async def root():
